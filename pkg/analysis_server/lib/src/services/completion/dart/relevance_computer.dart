@@ -4,6 +4,7 @@
 
 import 'package:analysis_server/src/services/completion/dart/candidate_suggestion.dart';
 import 'package:analysis_server/src/services/completion/dart/completion_manager.dart';
+import 'package:analysis_server/src/services/completion/dart/relevance_tables.g.dart';
 import 'package:analysis_server/src/services/completion/dart/suggestion_builder.dart';
 import 'package:analysis_server/src/services/completion/dart/utilities.dart';
 import 'package:analyzer/dart/element/element.dart';
@@ -107,6 +108,9 @@ class RelevanceComputer {
 
   /// Compute the relevance for the given [CandidateSuggestion].
   int computeRelevance(CandidateSuggestion suggestion) {
+    if (!useRelevanceScores) {
+      return 0;
+    }
     // See https://github.com/dart-lang/sdk/issues/61679
     // We have two checks to distinguish prefix `str` or `STR` when
     // candidates are also `str` or `STR`. We want to prefer the same case.
@@ -223,7 +227,10 @@ class RelevanceComputer {
         return 500;
       case ImportPrefixSuggestion():
         return computeScore(
-          elementKind: _computeElementKind(suggestion.libraryElement),
+          elementKind: _computeElementKind(
+            suggestion.libraryElement,
+            distance: null,
+          ),
         );
       case KeywordSuggestion():
         return _computeKeywordRelevance(suggestion);
@@ -375,7 +382,7 @@ class RelevanceComputer {
       request.contextType,
       elementType,
     );
-    var elementKind = _computeElementKind(element);
+    var elementKind = _computeElementKind(element, distance: null);
     var hasDeprecated = featureComputer.hasDeprecatedFeature(element);
     var isConstant = preferConstants
         ? featureComputer.isConstantFeature(element)
@@ -463,21 +470,26 @@ class RelevanceComputer {
 
   /// Compute the value of the _element kind_ feature for the given [element] in
   /// the completion context.
-  double _computeElementKind(Element element, {double? distance}) {
+  double _computeElementKind(Element element, {required double? distance}) {
     var location = completionLocation;
     var elementKind = featureComputer.elementKindFeature(
       element,
       location,
       distance: distance,
     );
-    if (elementKind < 0.0) {
+    if (listener case var listener? when elementKind == 0.0) {
       if (location == null) {
-        listener?.missingCompletionLocationAt(
+        listener.missingCompletionLocationAt(
           request.target.containingNode,
           request.target.entity!,
         );
+      } else if (elementKindRelevance[location] case var locationTable?) {
+        var kind = featureComputer.computeElementKind2(element);
+        if (locationTable[kind] == null) {
+          listener.missingElementKindEntryFor(location, kind);
+        }
       } else {
-        listener?.missingElementKindTableFor(location);
+        listener.missingElementKindTableFor(location);
       }
     }
     return elementKind;
@@ -492,14 +504,19 @@ class RelevanceComputer {
       location,
       distance: distance,
     );
-    if (elementKind < 0.0) {
+    if (listener case var listener? when elementKind == 0.0) {
       if (location == null) {
-        listener?.missingCompletionLocationAt(
+        listener.missingCompletionLocationAt(
           request.target.containingNode,
           request.target.entity!,
         );
+      } else if (elementKindRelevance[location] case var locationTable?) {
+        var kind = featureComputer.computeElementKind2(element);
+        if (locationTable[kind] == null) {
+          listener.missingElementKindEntryFor(location, kind);
+        }
       } else {
-        listener?.missingElementKindTableFor(location);
+        listener.missingElementKindTableFor(location);
       }
     }
     return elementKind;
@@ -534,7 +551,10 @@ class RelevanceComputer {
     var localVariableDistance = featureComputer.distanceToPercent(
       suggestion.distance,
     );
-    var elementKind = _computeElementKind(element);
+    var elementKind = _computeElementKind(
+      element,
+      distance: localVariableDistance,
+    );
     var isConstant = preferConstants
         ? featureComputer.isConstantFeature(element)
         : 0.0;
@@ -725,7 +745,7 @@ class RelevanceComputer {
 
   /// Compute the relevance for [TypeParameterElement].
   int _computeTypeParameterRelevance(TypeParameterElement parameter) {
-    var elementKind = _computeElementKind(parameter);
+    var elementKind = _computeElementKind(parameter, distance: null);
     var isConstant = preferConstants
         ? featureComputer.isConstantFeature(parameter)
         : 0.0;

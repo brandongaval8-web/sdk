@@ -3457,6 +3457,43 @@ sealed class AstNodeImpl extends SyntacticEntity implements AstNode {
       }
     }
   }
+
+  /// Returns the token with the smallest offset, or `null` if all of the
+  /// tokens are `null`.
+  ///
+  /// Like [Token.lexicallyFirst], which is public API, but accepts enough
+  /// tokens for every group of keywords, such as the seven modifiers of a
+  /// [FieldsDeclaration].
+  static Token? _lexicallyFirst(
+    Token? t1,
+    Token? t2, [
+    Token? t3,
+    Token? t4,
+    Token? t5,
+    Token? t6,
+    Token? t7,
+  ]) {
+    Token? result = t1;
+    if (result == null || t2 != null && t2.offset < result.offset) {
+      result = t2;
+    }
+    if (result == null || t3 != null && t3.offset < result.offset) {
+      result = t3;
+    }
+    if (result == null || t4 != null && t4.offset < result.offset) {
+      result = t4;
+    }
+    if (result == null || t5 != null && t5.offset < result.offset) {
+      result = t5;
+    }
+    if (result == null || t6 != null && t6.offset < result.offset) {
+      result = t6;
+    }
+    if (result == null || t7 != null && t7.offset < result.offset) {
+      result = t7;
+    }
+    return result;
+  }
 }
 
 /// Mixin for any [AstNodeImpl] that can potentially introduce a new scope.
@@ -6737,9 +6774,7 @@ abstract final class CaseClause implements AstNode {
     GenerateNodeProperty('guardedPattern'),
   ],
 )
-final class CaseClauseImpl extends AstNodeImpl
-    with AstNodeWithNameScopeMixin
-    implements CaseClause {
+final class CaseClauseImpl extends AstNodeImpl implements CaseClause {
   @generated
   @override
   final Token caseKeyword;
@@ -11825,7 +11860,7 @@ final class ConstructorDeclaration2Impl extends MemberDeclarationImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (Token.lexicallyFirst(
+    if (AstNodeImpl._lexicallyFirst(
           augmentKeyword,
           externalKeyword,
           constKeyword,
@@ -12173,7 +12208,7 @@ final class ConstructorDeclarationImpl extends ClassMemberImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (Token.lexicallyFirst(
+    if (AstNodeImpl._lexicallyFirst(
           augmentKeyword,
           externalKeyword,
           constKeyword,
@@ -22021,11 +22056,11 @@ abstract final class FieldDeclaration implements ClassMember {
   api: AstNodeApi.v1,
   generateConstructor: false,
   childEntitiesOrder: [
-    GenerateNodeProperty('augmentKeyword', tokenGroupId: 0),
-    GenerateNodeProperty('externalKeyword', tokenGroupId: 0),
-    GenerateNodeProperty('staticKeyword', tokenGroupId: 0),
-    GenerateNodeProperty('abstractKeyword', tokenGroupId: 0),
-    GenerateNodeProperty('covariantKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('augmentKeyword'),
+    GenerateNodeProperty('externalKeyword'),
+    GenerateNodeProperty('staticKeyword'),
+    GenerateNodeProperty('abstractKeyword'),
+    GenerateNodeProperty('covariantKeyword'),
     GenerateNodeProperty('fields'),
     GenerateNodeProperty('semicolon'),
   ],
@@ -22097,21 +22132,10 @@ final class FieldDeclarationImpl extends ClassMemberImpl
     _fields = _becomeParentOf1(fields);
   }
 
-  @generated
+  @DoNotGenerate(reason: 'Delegates to the canonical V2 origin')
   @override
-  Token get firstTokenAfterCommentAndMetadata {
-    if (Token.lexicallyFirst(
-          augmentKeyword,
-          externalKeyword,
-          staticKeyword,
-          abstractKeyword,
-          covariantKeyword,
-        )
-        case var result?) {
-      return result;
-    }
-    return fields.beginToken;
-  }
+  Token get firstTokenAfterCommentAndMetadata =>
+      _v1ProjectionOrigin.firstTokenAfterCommentAndMetadata;
 
   @override
   bool get isStatic => staticKeyword != null;
@@ -22224,9 +22248,13 @@ abstract final class FieldFormalParameter implements FormalParameter {
       withOverride: false,
       type: _TypeLiteral<ParameterKind>,
     ),
-    GenerateNodeProperty('requiredKeyword', isSuper: true),
-    GenerateNodeProperty('covariantKeyword', isSuper: true),
-    GenerateNodeProperty('constFinalOrVarKeyword', isSuper: true),
+    GenerateNodeProperty('requiredKeyword', isSuper: true, tokenGroupId: 0),
+    GenerateNodeProperty('covariantKeyword', isSuper: true, tokenGroupId: 0),
+    GenerateNodeProperty(
+      'constFinalOrVarKeyword',
+      isSuper: true,
+      tokenGroupId: 0,
+    ),
     GenerateNodeProperty('type', isSuper: true),
     GenerateNodeProperty('thisKeyword'),
     GenerateNodeProperty('period'),
@@ -22280,14 +22308,13 @@ final class FieldFormalParameterImpl extends FormalParameterImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (requiredKeyword case var requiredKeyword?) {
-      return requiredKeyword;
-    }
-    if (covariantKeyword case var covariantKeyword?) {
-      return covariantKeyword;
-    }
-    if (constFinalOrVarKeyword case var constFinalOrVarKeyword?) {
-      return constFinalOrVarKeyword;
+    if (AstNodeImpl._lexicallyFirst(
+          requiredKeyword,
+          covariantKeyword,
+          constFinalOrVarKeyword,
+        )
+        case var result?) {
+      return result;
     }
     if (type case var type?) {
       return type.beginToken;
@@ -22547,8 +22574,8 @@ abstract final class FieldsDeclaration implements MemberDeclaration {
     GenerateNodeProperty('staticKeyword', tokenGroupId: 0),
     GenerateNodeProperty('abstractKeyword', tokenGroupId: 0),
     GenerateNodeProperty('covariantKeyword', tokenGroupId: 0),
-    GenerateNodeProperty('lateKeyword'),
-    GenerateNodeProperty('constFinalOrVarKeyword'),
+    GenerateNodeProperty('lateKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('constFinalOrVarKeyword', tokenGroupId: 0),
     GenerateNodeProperty('type'),
     GenerateNodeProperty('fields'),
     GenerateNodeProperty('semicolon'),
@@ -22645,21 +22672,17 @@ final class FieldsDeclarationImpl extends MemberDeclarationImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (Token.lexicallyFirst(
+    if (AstNodeImpl._lexicallyFirst(
           augmentKeyword,
           externalKeyword,
           staticKeyword,
           abstractKeyword,
           covariantKeyword,
+          lateKeyword,
+          constFinalOrVarKeyword,
         )
         case var result?) {
       return result;
-    }
-    if (lateKeyword case var lateKeyword?) {
-      return lateKeyword;
-    }
-    if (constFinalOrVarKeyword case var constFinalOrVarKeyword?) {
-      return constFinalOrVarKeyword;
     }
     if (type case var type?) {
       return type.beginToken;
@@ -26021,8 +26044,8 @@ abstract final class FunctionDeclaration implements CompilationUnitMember {
   api: AstNodeApi.v1,
   generateConstructor: false,
   childEntitiesOrder: [
-    GenerateNodeProperty('augmentKeyword'),
-    GenerateNodeProperty('externalKeyword'),
+    GenerateNodeProperty('augmentKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('externalKeyword', tokenGroupId: 0),
     GenerateNodeProperty('returnType'),
     GenerateNodeProperty('propertyKeyword'),
     GenerateNodeProperty('name'),
@@ -26085,11 +26108,9 @@ final class FunctionDeclarationImpl extends CompilationUnitMemberImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (augmentKeyword case var augmentKeyword?) {
-      return augmentKeyword;
-    }
-    if (externalKeyword case var externalKeyword?) {
-      return externalKeyword;
+    if (AstNodeImpl._lexicallyFirst(augmentKeyword, externalKeyword)
+        case var result?) {
+      return result;
     }
     if (returnType case var returnType?) {
       return returnType.beginToken;
@@ -26838,9 +26859,11 @@ final class FunctionExpressionInvocationImpl extends InvocationExpressionImpl
   @override
   ArgumentListImpl get argumentList => _v1ProjectionOrigin.argumentList;
 
-  @DoNotGenerate(reason: 'Delegates to the canonical V2 origin')
+  @generated
   @override
-  Token get beginToken => _v1ProjectionOrigin.beginToken;
+  Token get beginToken {
+    return function.beginToken;
+  }
 
   @override
   InternalFormalParameterElement? get correspondingParameter =>
@@ -28356,8 +28379,8 @@ class GenerateNodeProperty {
   /// marked with the same non-null value for this field. The generated code
   /// for [AstNode.beginToken] or
   /// [AnnotatedNode.firstTokenAfterCommentAndMetadata] will use
-  /// [Token.lexicallyFirst] to identify which keyword in the group appears
-  /// first.
+  /// [AstNodeImpl._lexicallyFirst] to identify which keyword in the group
+  /// appears first.
   ///
   /// Only meaningful when applied to token properties; all properties with
   /// the same [tokenGroupId] should appear consecutively in the
@@ -29274,7 +29297,8 @@ final class GetterDeclarationImpl extends MemberDeclarationImpl
     if (augmentKeyword case var augmentKeyword?) {
       return augmentKeyword;
     }
-    if (Token.lexicallyFirst(externalKeyword, staticKeyword) case var result?) {
+    if (AstNodeImpl._lexicallyFirst(externalKeyword, staticKeyword)
+        case var result?) {
       return result;
     }
     if (returnType case var returnType?) {
@@ -29519,7 +29543,9 @@ abstract final class GuardedPattern implements AstNode {
     GenerateNodeProperty('whenClause'),
   ],
 )
-final class GuardedPatternImpl extends AstNodeImpl implements GuardedPattern {
+final class GuardedPatternImpl extends AstNodeImpl
+    with AstNodeWithNameScopeMixin
+    implements GuardedPattern {
   @generated
   DartPatternImpl _pattern;
 
@@ -32146,62 +32172,6 @@ final class ImportDirectiveImpl extends NamespaceDirectiveImpl
       return result;
     }
     return null;
-  }
-
-  /// Returns `true` if the non-URI components of the two directives are
-  /// syntactically identical.
-  ///
-  /// URIs are checked outside to see if they resolve to the same absolute URI,
-  /// so to the same library, regardless of the used syntax (absolute, relative,
-  /// not normalized).
-  static bool areSyntacticallyIdenticalExceptUri(
-    NamespaceDirective node1,
-    NamespaceDirective node2,
-  ) {
-    if (node1 is ImportDirective &&
-        node2 is ImportDirective &&
-        node1.prefixName?.lexeme != node2.prefixName?.lexeme) {
-      return false;
-    }
-
-    bool areSameNames(
-      List<CombinatorName> names1,
-      List<CombinatorName> names2,
-    ) {
-      if (names1.length != names2.length) {
-        return false;
-      }
-      for (var i = 0; i < names1.length; i++) {
-        if (names1[i].name.lexeme != names2[i].name.lexeme) {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    var combinators1 = node1.combinators;
-    var combinators2 = node2.combinators;
-    if (combinators1.length != combinators2.length) {
-      return false;
-    }
-    for (var i = 0; i < combinators1.length; i++) {
-      var combinator1 = combinators1[i];
-      var combinator2 = combinators2[i];
-      if (combinator1 is HideCombinator && combinator2 is HideCombinator) {
-        if (!areSameNames(combinator1.names, combinator2.names)) {
-          return false;
-        }
-      } else if (combinator1 is ShowCombinator &&
-          combinator2 is ShowCombinator) {
-        if (!areSameNames(combinator1.names, combinator2.names)) {
-          return false;
-        }
-      } else {
-        return false;
-      }
-    }
-
-    return true;
   }
 }
 
@@ -37678,8 +37648,8 @@ abstract final class LocalVariablesDeclaration implements AnnotatedNode {
 @GenerateNodeImpl(
   api: AstNodeApi.v2,
   childEntitiesOrder: [
-    GenerateNodeProperty('lateKeyword'),
-    GenerateNodeProperty('constFinalOrVarKeyword'),
+    GenerateNodeProperty('lateKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('constFinalOrVarKeyword', tokenGroupId: 0),
     GenerateNodeProperty('type'),
     GenerateNodeProperty('variables'),
   ],
@@ -37754,11 +37724,9 @@ final class LocalVariablesDeclarationImpl extends AnnotatedNodeImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (lateKeyword case var lateKeyword?) {
-      return lateKeyword;
-    }
-    if (constFinalOrVarKeyword case var constFinalOrVarKeyword?) {
-      return constFinalOrVarKeyword;
+    if (AstNodeImpl._lexicallyFirst(lateKeyword, constFinalOrVarKeyword)
+        case var result?) {
+      return result;
     }
     if (type case var type?) {
       return type.beginToken;
@@ -40083,7 +40051,8 @@ final class MethodDeclaration2Impl extends MemberDeclarationImpl
     if (augmentKeyword case var augmentKeyword?) {
       return augmentKeyword;
     }
-    if (Token.lexicallyFirst(externalKeyword, staticKeyword) case var result?) {
+    if (AstNodeImpl._lexicallyFirst(externalKeyword, staticKeyword)
+        case var result?) {
       return result;
     }
     if (returnType case var returnType?) {
@@ -40397,14 +40366,14 @@ final class MethodDeclarationImpl extends ClassMemberImpl
     if (augmentKeyword case var augmentKeyword?) {
       return augmentKeyword;
     }
-    if (Token.lexicallyFirst(externalKeyword, modifierKeyword)
+    if (AstNodeImpl._lexicallyFirst(externalKeyword, modifierKeyword)
         case var result?) {
       return result;
     }
     if (returnType case var returnType?) {
       return returnType.beginToken;
     }
-    if (Token.lexicallyFirst(propertyKeyword, operatorKeyword)
+    if (AstNodeImpl._lexicallyFirst(propertyKeyword, operatorKeyword)
         case var result?) {
       return result;
     }
@@ -44438,7 +44407,7 @@ abstract final class OperatorDeclaration
   api: AstNodeApi.v2,
   childEntitiesOrder: [
     GenerateNodeProperty('augmentKeyword'),
-    GenerateNodeProperty('externalKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('externalKeyword'),
     GenerateNodeProperty('returnType'),
     GenerateNodeProperty('operatorKeyword'),
     GenerateNodeProperty('operator'),
@@ -44532,8 +44501,8 @@ final class OperatorDeclarationImpl extends MemberDeclarationImpl
     if (augmentKeyword case var augmentKeyword?) {
       return augmentKeyword;
     }
-    if (Token.lexicallyFirst(externalKeyword) case var result?) {
-      return result;
+    if (externalKeyword case var externalKeyword?) {
+      return externalKeyword;
     }
     if (returnType case var returnType?) {
       return returnType.beginToken;
@@ -47887,9 +47856,11 @@ final class PostfixExpressionImpl extends ExpressionImpl
     _attachV1Children();
   }
 
-  @DoNotGenerate(reason: 'Delegates to the canonical V2 origin')
+  @generated
   @override
-  Token get beginToken => _v1ProjectionOrigin.beginToken;
+  Token get beginToken {
+    return operand.beginToken;
+  }
 
   @override
   InternalFormalParameterElement? get correspondingParameter =>
@@ -52565,9 +52536,13 @@ abstract final class RegularFormalParameter implements FormalParameter {}
       withOverride: false,
       type: _TypeLiteral<ParameterKind>,
     ),
-    GenerateNodeProperty('requiredKeyword', isSuper: true),
-    GenerateNodeProperty('covariantKeyword', isSuper: true),
-    GenerateNodeProperty('constFinalOrVarKeyword', isSuper: true),
+    GenerateNodeProperty('requiredKeyword', isSuper: true, tokenGroupId: 0),
+    GenerateNodeProperty('covariantKeyword', isSuper: true, tokenGroupId: 0),
+    GenerateNodeProperty(
+      'constFinalOrVarKeyword',
+      isSuper: true,
+      tokenGroupId: 0,
+    ),
     GenerateNodeProperty('type', isSuper: true),
     GenerateNodeProperty('name', isSuper: true),
     GenerateNodeProperty('functionTypedSuffix', isSuper: true),
@@ -52620,14 +52595,13 @@ final class RegularFormalParameterImpl extends FormalParameterImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (requiredKeyword case var requiredKeyword?) {
-      return requiredKeyword;
-    }
-    if (covariantKeyword case var covariantKeyword?) {
-      return covariantKeyword;
-    }
-    if (constFinalOrVarKeyword case var constFinalOrVarKeyword?) {
-      return constFinalOrVarKeyword;
+    if (AstNodeImpl._lexicallyFirst(
+          requiredKeyword,
+          covariantKeyword,
+          constFinalOrVarKeyword,
+        )
+        case var result?) {
+      return result;
     }
     if (type case var type?) {
       return type.beginToken;
@@ -54217,7 +54191,8 @@ final class SetterDeclarationImpl extends MemberDeclarationImpl
     if (augmentKeyword case var augmentKeyword?) {
       return augmentKeyword;
     }
-    if (Token.lexicallyFirst(externalKeyword, staticKeyword) case var result?) {
+    if (AstNodeImpl._lexicallyFirst(externalKeyword, staticKeyword)
+        case var result?) {
       return result;
     }
     if (returnType case var returnType?) {
@@ -56238,9 +56213,13 @@ abstract final class SuperFormalParameter implements FormalParameter {
       withOverride: false,
       type: _TypeLiteral<ParameterKind>,
     ),
-    GenerateNodeProperty('requiredKeyword', isSuper: true),
-    GenerateNodeProperty('covariantKeyword', isSuper: true),
-    GenerateNodeProperty('constFinalOrVarKeyword', isSuper: true),
+    GenerateNodeProperty('requiredKeyword', isSuper: true, tokenGroupId: 0),
+    GenerateNodeProperty('covariantKeyword', isSuper: true, tokenGroupId: 0),
+    GenerateNodeProperty(
+      'constFinalOrVarKeyword',
+      isSuper: true,
+      tokenGroupId: 0,
+    ),
     GenerateNodeProperty('type', isSuper: true),
     GenerateNodeProperty('superKeyword'),
     GenerateNodeProperty('period'),
@@ -56294,14 +56273,13 @@ final class SuperFormalParameterImpl extends FormalParameterImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (requiredKeyword case var requiredKeyword?) {
-      return requiredKeyword;
-    }
-    if (covariantKeyword case var covariantKeyword?) {
-      return covariantKeyword;
-    }
-    if (constFinalOrVarKeyword case var constFinalOrVarKeyword?) {
-      return constFinalOrVarKeyword;
+    if (AstNodeImpl._lexicallyFirst(
+          requiredKeyword,
+          covariantKeyword,
+          constFinalOrVarKeyword,
+        )
+        case var result?) {
+      return result;
     }
     if (type case var type?) {
       return type.beginToken;
@@ -58486,8 +58464,8 @@ abstract final class TopLevelFunctionDeclaration
 @GenerateNodeImpl(
   api: AstNodeApi.v2,
   childEntitiesOrder: [
-    GenerateNodeProperty('augmentKeyword'),
-    GenerateNodeProperty('externalKeyword'),
+    GenerateNodeProperty('augmentKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('externalKeyword', tokenGroupId: 0),
     GenerateNodeProperty('returnType'),
     GenerateNodeProperty('name'),
     GenerateNodeProperty('typeParameters'),
@@ -58568,11 +58546,9 @@ final class TopLevelFunctionDeclarationImpl extends TopLevelDeclarationImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (augmentKeyword case var augmentKeyword?) {
-      return augmentKeyword;
-    }
-    if (externalKeyword case var externalKeyword?) {
-      return externalKeyword;
+    if (AstNodeImpl._lexicallyFirst(augmentKeyword, externalKeyword)
+        case var result?) {
+      return result;
     }
     if (returnType case var returnType?) {
       return returnType.beginToken;
@@ -58831,8 +58807,8 @@ abstract final class TopLevelGetterDeclaration
 @GenerateNodeImpl(
   api: AstNodeApi.v2,
   childEntitiesOrder: [
-    GenerateNodeProperty('augmentKeyword'),
-    GenerateNodeProperty('externalKeyword'),
+    GenerateNodeProperty('augmentKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('externalKeyword', tokenGroupId: 0),
     GenerateNodeProperty('returnType'),
     GenerateNodeProperty('getKeyword'),
     GenerateNodeProperty('name'),
@@ -58916,11 +58892,9 @@ final class TopLevelGetterDeclarationImpl extends TopLevelDeclarationImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (augmentKeyword case var augmentKeyword?) {
-      return augmentKeyword;
-    }
-    if (externalKeyword case var externalKeyword?) {
-      return externalKeyword;
+    if (AstNodeImpl._lexicallyFirst(augmentKeyword, externalKeyword)
+        case var result?) {
+      return result;
     }
     if (returnType case var returnType?) {
       return returnType.beginToken;
@@ -59162,8 +59136,8 @@ abstract final class TopLevelSetterDeclaration
 @GenerateNodeImpl(
   api: AstNodeApi.v2,
   childEntitiesOrder: [
-    GenerateNodeProperty('augmentKeyword'),
-    GenerateNodeProperty('externalKeyword'),
+    GenerateNodeProperty('augmentKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('externalKeyword', tokenGroupId: 0),
     GenerateNodeProperty('returnType'),
     GenerateNodeProperty('setKeyword'),
     GenerateNodeProperty('name'),
@@ -59243,11 +59217,9 @@ final class TopLevelSetterDeclarationImpl extends TopLevelDeclarationImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (augmentKeyword case var augmentKeyword?) {
-      return augmentKeyword;
-    }
-    if (externalKeyword case var externalKeyword?) {
-      return externalKeyword;
+    if (AstNodeImpl._lexicallyFirst(augmentKeyword, externalKeyword)
+        case var result?) {
+      return result;
     }
     if (returnType case var returnType?) {
       return returnType.beginToken;
@@ -59741,20 +59713,10 @@ final class TopLevelVariableDeclarationImpl extends CompilationUnitMemberImpl
     return semicolon;
   }
 
-  @generated
+  @DoNotGenerate(reason: 'Delegates to the canonical V2 origin')
   @override
-  Token get firstTokenAfterCommentAndMetadata {
-    if (augmentKeyword case var augmentKeyword?) {
-      return augmentKeyword;
-    }
-    if (externalKeyword case var externalKeyword?) {
-      return externalKeyword;
-    }
-    if (abstractKeyword case var abstractKeyword?) {
-      return abstractKeyword;
-    }
-    return variables.beginToken;
-  }
+  Token get firstTokenAfterCommentAndMetadata =>
+      _v1ProjectionOrigin.firstTokenAfterCommentAndMetadata;
 
   @generated
   @override
@@ -59892,11 +59854,11 @@ abstract final class TopLevelVariablesDeclaration
 @GenerateNodeImpl(
   api: AstNodeApi.v2,
   childEntitiesOrder: [
-    GenerateNodeProperty('augmentKeyword'),
-    GenerateNodeProperty('externalKeyword'),
-    GenerateNodeProperty('abstractKeyword'),
-    GenerateNodeProperty('lateKeyword'),
-    GenerateNodeProperty('constFinalOrVarKeyword'),
+    GenerateNodeProperty('augmentKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('externalKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('abstractKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('lateKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('constFinalOrVarKeyword', tokenGroupId: 0),
     GenerateNodeProperty('type'),
     GenerateNodeProperty('variables'),
     GenerateNodeProperty('semicolon'),
@@ -59985,20 +59947,15 @@ final class TopLevelVariablesDeclarationImpl extends TopLevelDeclarationImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (augmentKeyword case var augmentKeyword?) {
-      return augmentKeyword;
-    }
-    if (externalKeyword case var externalKeyword?) {
-      return externalKeyword;
-    }
-    if (abstractKeyword case var abstractKeyword?) {
-      return abstractKeyword;
-    }
-    if (lateKeyword case var lateKeyword?) {
-      return lateKeyword;
-    }
-    if (constFinalOrVarKeyword case var constFinalOrVarKeyword?) {
-      return constFinalOrVarKeyword;
+    if (AstNodeImpl._lexicallyFirst(
+          augmentKeyword,
+          externalKeyword,
+          abstractKeyword,
+          lateKeyword,
+          constFinalOrVarKeyword,
+        )
+        case var result?) {
+      return result;
     }
     if (type case var type?) {
       return type.beginToken;
@@ -62812,8 +62769,8 @@ abstract final class VariableDeclarationList implements AnnotatedNode {
   api: AstNodeApi.v1,
   generateConstructor: false,
   childEntitiesOrder: [
-    GenerateNodeProperty('lateKeyword'),
-    GenerateNodeProperty('keyword'),
+    GenerateNodeProperty('lateKeyword', tokenGroupId: 0),
+    GenerateNodeProperty('keyword', tokenGroupId: 0),
     GenerateNodeProperty('type'),
     GenerateNodeProperty('variables'),
   ],
@@ -62877,11 +62834,8 @@ final class VariableDeclarationListImpl extends AnnotatedNodeImpl
   @generated
   @override
   Token get firstTokenAfterCommentAndMetadata {
-    if (lateKeyword case var lateKeyword?) {
-      return lateKeyword;
-    }
-    if (keyword case var keyword?) {
-      return keyword;
+    if (AstNodeImpl._lexicallyFirst(lateKeyword, keyword) case var result?) {
+      return result;
     }
     if (type case var type?) {
       return type.beginToken;
@@ -64238,7 +64192,7 @@ base mixin _AnnotatedNodeMixin on AstNodeImpl implements AnnotatedNode {
 
   @override
   Token get beginToken {
-    return Token.lexicallyFirst(
+    return AstNodeImpl._lexicallyFirst(
           _documentationComment?.beginToken,
           _metadata.beginToken,
         ) ??

@@ -208,6 +208,11 @@ class EventStreamManager implements EventStreamMethods {
   @visibleForTesting
   final streamListeners = <String, List<Client>>{};
 
+  /// Tracks in-flight [DartRuntimeServiceBackend.onStreamListen] invocations by
+  /// stream ID so concurrent first subscribers to the same stream share a
+  /// single backend subscription request.
+  final _pendingStreamListens = <String, Future<bool>>{};
+
   final _logger = Logger('$EventStreamManager');
   final _streamSubscriptionMutex = Mutex();
 
@@ -316,10 +321,22 @@ class EventStreamManager implements EventStreamMethods {
       // Tell the backend to start sending events for this stream if this is the
       // first listener.
       if (listeners == null || listeners.isEmpty) {
-        final success = await _backend.onStreamListen(
-          streamId: streamId,
-          params: params,
-        );
+        final pendingListen = _pendingStreamListens[streamId];
+        final bool success;
+        if (pendingListen != null) {
+          success = await pendingListen;
+        } else {
+          try {
+            final listenFuture = _backend.onStreamListen(
+              streamId: streamId,
+              params: params,
+            );
+            _pendingStreamListens[streamId] = listenFuture;
+            success = await listenFuture;
+          } finally {
+            unawaited(_pendingStreamListens.remove(streamId));
+          }
+        }
         if (!success) {
           client.logger.warning(
             'Attempted to subscribe to an invalid stream ID: $streamId.',
@@ -328,13 +345,12 @@ class EventStreamManager implements EventStreamMethods {
             details: "streamListen: invalid 'streamId' parameter: $streamId",
           );
         }
-        listeners = streamListeners.putIfAbsent(streamId, () => []);
+        listeners = streamListeners.putIfAbsent(streamId, () => <Client>[]);
       }
       if (listeners.contains(client)) {
         RpcException.streamAlreadySubscribed.throwException();
       }
       listeners.add(client);
-      _backend.onClientSubscribe(client, streamId);
       if (streamId == EventStreams.kService) {
         // Send all previously registered service extensions when a client
         // subscribes to the Service stream.
@@ -355,6 +371,9 @@ class EventStreamManager implements EventStreamMethods {
           }
         }
       }
+      // Invoked last so events sent while the backend awaits are not
+      // duplicated by the Service registration replay above.
+      await _backend.onClientSubscribe(client, streamId, params: params);
     });
   }
 

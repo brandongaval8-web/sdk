@@ -1098,6 +1098,32 @@ extension JSAnyOperatorExtension on JSAny? {
   );
 
   @patch
+  JSAny leftShift(JSAny? any) => JSAny._(
+    JSAnyType(
+      JSValue(
+        js_helper.JS<WasmExternRef>(
+          '(o, a) => o << a',
+          this.toExternRef,
+          any.toExternRef,
+        ),
+      ),
+    ),
+  );
+
+  @patch
+  JSAny rightShift(JSAny? any) => JSAny._(
+    JSAnyType(
+      JSValue(
+        js_helper.JS<WasmExternRef>(
+          '(o, a) => o >> a',
+          this.toExternRef,
+          any.toExternRef,
+        ),
+      ),
+    ),
+  );
+
+  @patch
   JSNumber unsignedRightShift(JSAny? any) => JSNumber._(
     JSNumberType(
       JSValue(
@@ -1107,6 +1133,52 @@ extension JSAnyOperatorExtension on JSAny? {
           any.toExternRef,
         ),
       ),
+    ),
+  );
+
+  @patch
+  JSAny bitwiseAnd(JSAny? any) => JSAny._(
+    JSAnyType(
+      JSValue(
+        js_helper.JS<WasmExternRef>(
+          '(o, a) => o & a',
+          this.toExternRef,
+          any.toExternRef,
+        ),
+      ),
+    ),
+  );
+
+  @patch
+  JSAny bitwiseOr(JSAny? any) => JSAny._(
+    JSAnyType(
+      JSValue(
+        js_helper.JS<WasmExternRef>(
+          '(o, a) => o | a',
+          this.toExternRef,
+          any.toExternRef,
+        ),
+      ),
+    ),
+  );
+
+  @patch
+  JSAny bitwiseXor(JSAny? any) => JSAny._(
+    JSAnyType(
+      JSValue(
+        js_helper.JS<WasmExternRef>(
+          '(o, a) => o ^ a',
+          this.toExternRef,
+          any.toExternRef,
+        ),
+      ),
+    ),
+  );
+
+  @patch
+  JSAny get bitwiseNot => JSAny._(
+    JSAnyType(
+      JSValue(js_helper.JS<WasmExternRef>('(o) => ~o', this.toExternRef)),
     ),
   );
 
@@ -1165,6 +1237,10 @@ bool jsIdentical(Object? a, Object? b) {
   }
   return identical(a, b);
 }
+
+@patch
+Never jsThrow(JSAny error) =>
+    js_helper.JS<WasmVoid>('(e) => { throw e; }', error.toExternRef) as Never;
 
 @JS('Array')
 @staticInterop

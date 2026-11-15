@@ -16,6 +16,10 @@ int staticId(String label) {
   final id = statics.length;
   statics.add(StaticInfo(label));
   staticIds[label] = id;
+  final size = staticFunctionsTable.size;
+  if (id == size) {
+    staticFunctionsTable.grow(size == 0 ? 16 : size, null);
+  }
   return id;
 }
 
@@ -24,22 +28,17 @@ int staticId(String label) {
 /// Statics are defined once.
 void defineStatic(int id, WasmFuncRef function) {
   final info = statics[id];
-  if (info.function != null) {
+  if (info.isDefined) {
     throw StateError('Static ${info.label} is already defined');
   }
-  info.function = FunctionInfo(function);
+  info.isDefined = true;
+  staticFunctionsTable[id] = function;
 }
 
-/// Returns static [id]'s function.
-// TODO: Check the caller's arguments against the parameter shape.
-WasmFuncRef lookupStatic(int id) {
-  final info = statics[id];
-  final function = info.function;
-  if (function == null) {
-    throw StateError('Static ${info.label} is not defined');
-  }
-  return function.ref;
-}
+/// Maps a static's ID to its function.
+@pragma('wasm:table-type', TableType(limits: Limits(0)))
+@pragma('wasm:export', 'static-functions-table')
+external WasmTable<WasmFuncRef?> get staticFunctionsTable;
 
 /// Maps a static's ID to its info.
 final List<StaticInfo> statics = [];
@@ -50,8 +49,8 @@ final Map<String, int> staticIds = {};
 final class StaticInfo {
   final String label;
 
-  /// The static's function, or `null` if it hasn't been defined.
-  FunctionInfo? function;
+  /// Whether the static's function has been defined.
+  bool isDefined = false;
 
   // TODO: Store the parameter shape.
   StaticInfo(this.label);
@@ -90,21 +89,35 @@ int instanceMemberId(String name) {
   return id;
 }
 
+/// Returns the ID of parameter shape [label] or assigns one.
+///
+/// Formatted like: `1,a,b` for `foo(x, {a, b}) {}`
+int shapeId(String label) {
+  final existing = shapeIds[label];
+  if (existing != null) return existing;
+  final id = shapeLabels.length;
+  shapeLabels.add(label);
+  shapeIds[label] = id;
+  return id;
+}
+
 /// Starts defining class [id]'s instance members.
 void startInstanceMemberDefinitions(int id) => classes[id].changeState(
   ClassState.typeInitialized,
   ClassState.initializingMembers,
 );
 
-/// Defines [function] as class [classId]'s instance member [instanceMemberId].
+/// Defines [function] as class [classId]'s instance member [instanceMemberId]
+/// with shape [shapeId].
 ///
-/// Members are defined once, between [startInstanceMemberDefinitions] and
-/// [endInstanceMemberDefinitions].
+/// Members are defined once per shape, between [startInstanceMemberDefinitions]
+/// and [endInstanceMemberDefinitions].
 void defineInstanceMember(
   int classId,
   int instanceMemberId,
+  int shapeId,
   WasmFuncRef function,
-) => classes[classId].defineInstanceMember(instanceMemberId, function);
+) => classes[classId].defineInstanceMember(instanceMemberId, shapeId, function);
 
 /// Ends defining class [id]'s instance members, making it ready to use.
 void endInstanceMemberDefinitions(int id) => classes[id].changeState(
@@ -112,21 +125,33 @@ void endInstanceMemberDefinitions(int id) => classes[id].changeState(
   ClassState.initialized,
 );
 
-/// Returns [instanceMemberId] in class [classId] or its superclasses.
-// TODO: Check the caller's arguments against the parameter shape.
-WasmFuncRef findTarget(int classId, int instanceMemberId) {
+/// Returns [instanceMemberId] with shape [shapeId] in class [classId] or its
+/// superclasses.
+WasmFuncRef findTarget(int classId, int instanceMemberId, int shapeId) {
   int id = classId;
   while (id != -1) {
     final cls = classes[id]..expectState(ClassState.initialized);
-    final member = cls.members[instanceMemberId];
-    if (member != null) return member.ref;
+    final shapes = cls.members[instanceMemberId];
+    if (shapes != null) {
+      // TODO(dart2wasm): Add forwarders for overrides that change the shape.
+      final member = shapes[shapeId];
+      if (member == null) break;
+      return member.ref;
+    }
     id = cls.superclassId;
   }
   throw StateError(
     'Class ${classes[classId].label} has no member '
-    '${instanceMemberNames[instanceMemberId]}',
+    '${memberLabel(instanceMemberId, shapeId)}',
   );
 }
+
+/// Returns the label of instance member [instanceMemberId] with shape
+/// [shapeId].
+///
+/// Formatted like: `bar(1,a,b)` for `bar(x, {a, b}) {}`.
+String memberLabel(int instanceMemberId, int shapeId) =>
+    '${instanceMemberNames[instanceMemberId]}(${shapeLabels[shapeId]})';
 
 // TODO: Remove when dart:core is compiled.
 const objectLabel = 'dart:core::Object';
@@ -145,6 +170,12 @@ final Map<String, int> instanceMemberIds = {};
 /// Maps an instance member ID to its name.
 final List<String> instanceMemberNames = [];
 
+/// Maps a shape's label to its ID.
+final Map<String, int> shapeIds = {};
+
+/// Maps a shape ID to its label.
+final List<String> shapeLabels = [];
+
 final class ClassInfo {
   final String label;
 
@@ -153,21 +184,27 @@ final class ClassInfo {
   /// The superclass's ID or -1 for `Object`.
   int superclassId = -1;
 
-  /// Maps member IDs to their function.
-  final Map<int, FunctionInfo> members = {};
+  /// Maps member IDs to their functions by shape ID.
+  final Map<int, Map<int, FunctionInfo>> members = {};
 
   ClassInfo(this.label);
 
-  /// Defines [function] as instance member [instanceMemberId].
-  void defineInstanceMember(int instanceMemberId, WasmFuncRef function) {
+  /// Defines [function] as instance member [instanceMemberId] with shape
+  /// [shapeId].
+  void defineInstanceMember(
+    int instanceMemberId,
+    int shapeId,
+    WasmFuncRef function,
+  ) {
     expectState(ClassState.initializingMembers);
-    if (members.containsKey(instanceMemberId)) {
+    final shapes = members[instanceMemberId] ??= {};
+    if (shapes.containsKey(shapeId)) {
       throw StateError(
         'Class $label already defines '
-        '${instanceMemberNames[instanceMemberId]}',
+        '${memberLabel(instanceMemberId, shapeId)}',
       );
     }
-    members[instanceMemberId] = FunctionInfo(function);
+    shapes[shapeId] = FunctionInfo(function);
   }
 
   /// Changes this class's state from [from] to [to].
@@ -207,4 +244,21 @@ final class FunctionInfo {
   final WasmFuncRef ref;
 
   FunctionInfo(this.ref);
+}
+
+/// Returns the sentinel callers pass for omitted optional parameters.
+///
+/// Every module calls this on startup with its own [sentinel] and gets the
+/// first module's, so callees in any module can recognize it with `ref.eq`.
+// TODO(dart2wasm): Move to an SDK module after dart:core is compiled.
+WasmEqRef defaultValueSentinel(WasmEqRef sentinel) =>
+    (_defaultValueSentinel ??= EqRefInfo(sentinel)).ref;
+
+EqRefInfo? _defaultValueSentinel;
+
+/// Wraps a [WasmEqRef], which dart2wasm can't null-check.
+final class EqRefInfo {
+  final WasmEqRef ref;
+
+  EqRefInfo(this.ref);
 }

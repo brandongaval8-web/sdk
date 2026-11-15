@@ -192,6 +192,14 @@ const String EXPECTATIONS = '''
   {
     "name": "ConstantCoverageReferenceWithoutNode",
     "group": "Fail"
+  },
+  {
+    "name": "ErrorOnCompileViaExperimentalCache",
+    "group": "Fail"
+  },
+  {
+    "name": "ErrorOnCompileFromScratch",
+    "group": "Fail"
   }
 ]
 ''';
@@ -229,6 +237,10 @@ final Expectation NeededDillMismatch =
     staticExpectationSet["NeededDillMismatch"];
 final Expectation ReachableLibrariesError =
     staticExpectationSet["ReachableLibrariesError"];
+final Expectation ErrorOnCompileViaExperimentalCache =
+    staticExpectationSet["ErrorOnCompileViaExperimentalCache"];
+final Expectation ErrorOnCompileFromScratch =
+    staticExpectationSet["ErrorOnCompileFromScratch"];
 
 final ExpectationSet staticExpectationSet = new ExpectationSet.fromJsonList(
   jsonDecode(EXPECTATIONS),
@@ -922,7 +934,7 @@ class NewWorldTest {
             : null,
       );
       print(
-        "*****\n\ncomponent:\n"
+        "*****\n\ncomponent (first compile):\n"
         "${actualSerialized}\n\n\n",
       );
       subtestResult = _checkExpectFile(
@@ -1139,6 +1151,17 @@ class NewWorldTest {
         incrementalCompilerCache,
       );
       if (subtestResult != null) return subtestResult;
+
+      if (!world.skipCompileFromScratch) {
+        subtestResult = await _compileFromScratch(
+          world,
+          worldTestData,
+          newWorldTestData,
+          prevFormattedErrors,
+          prevFormattedWarnings,
+        );
+        if (subtestResult != null) return subtestResult;
+      }
 
       // Dummy tree nodes can (currently) leak though the parent pointer.
       // To avoid that (here) (for leak testing) we'll null them out.
@@ -1974,7 +1997,11 @@ class NewWorldTest {
             ? worldTestData.formattedErrors
             : null,
       );
-      print("*****\n\ncomponent (3):\n$componentLocalString\n\n\n");
+      print(
+        "*****\n\ncomponent (compile from scratch incremental "
+        "serialization or opt-in)):\n"
+        "$componentLocalString\n\n\n",
+      );
       checkIsEqual(
         newWorldTestData.newestWholeComponentData!,
         thisWholeComponent,
@@ -2126,7 +2153,10 @@ class NewWorldTest {
             ? worldTestData.formattedErrors
             : null,
       );
-      print("*****\n\ncomponent2:\n$component2String\n\n\n");
+      print(
+        "*****\n\ncomponent (compile to full component):\n"
+        "$component2String\n\n\n",
+      );
       checkIsEqual(
         newWorldTestData.newestWholeComponentData!,
         thisWholeComponent,
@@ -2442,108 +2472,31 @@ class NewWorldTest {
     Set<String> prevFormattedErrors,
     Set<String> prevFormattedWarnings,
   ) async {
-    // Load modules via additionalDillModules.
     if (!world.noFullComponent && world.modules != null) {
-      // Do compile from scratch and compare.
-      worldTestData.clearPrevErrorsEtc();
-      CompilerOptions options = _createOptionsForWorld(
+      Result<TestData>? result = await _compileAndPerformChecks(
+        new TestIncrementalCompiler(
+          _clearPrevErrorsAndCreateOptionsForCompile(
+            worldTestData,
+            newWorldTestData,
+            world,
+          ),
+          worldTestData.entries.first,
+          null,
+          world.outlineOnly,
+        ),
+        worldTestData,
+        world,
+        "component (compile with load modules via additional dill modules)",
         newWorldTestData,
-        worldTestData,
-        world,
-        // The DDC target saves stuff in the target that causes leaks
-        // in this config where we've loaded a new sdk etc, so we create
-        // a new target to avoid it.
-        createNewTarget: true,
-      );
-
-      List<Uri> additionalDillModules = [];
-      int moduleNum = 0;
-      for (String moduleName in world.modules!) {
-        moduleNum++;
-        final Uri moduleUri = newWorldTestData.base.resolve(
-          "module_$moduleNum.dill",
-        );
-        newWorldTestData.fs
-            .entityForUri(moduleUri)
-            .writeAsBytesSync(newWorldTestData.moduleData![moduleName]!);
-        additionalDillModules.add(moduleUri);
-      }
-
-      options.additionalDillModules = additionalDillModules;
-
-      TestIncrementalCompiler? compilerFromScratch =
-          new TestIncrementalCompiler(
-            options,
-            worldTestData.entries.first,
-            null,
-            world.outlineOnly,
-          );
-      Stopwatch stopwatch = new Stopwatch()..start();
-      IncrementalCompilerResult? compilerResultLocal = await compilerFromScratch
-          .computeDelta(
-            entryPoints: worldTestData.entries,
-            simulateTransformer: world.simulateTransformer,
-          );
-      Component? componentLocal = compilerResultLocal.component;
-      compilerResultLocal = null;
-      compilerFromScratch = null;
-      Result<TestData>? result = _performErrorAndWarningCheck(
-        world,
-        data,
-        worldTestData,
-      );
-      if (result != null) return result;
-      util.throwOnEmptyMixinBodies(componentLocal);
-      await util.throwOnInsufficientUriToSource(componentLocal);
-      print("Compile took ${stopwatch.elapsedMilliseconds} ms");
-
-      List<int> thisWholeComponent = util.postProcess(
-        componentLocal,
-        clearConstantCoverageConstructors:
-            world.clearConstantCoverageConstructors,
-      );
-      String componentString = _componentToStringSdkFiltered(
-        componentLocal,
-        printErrors: world.printErrorsInExpect
-            ? worldTestData.formattedErrors
-            : null,
-      );
-      print("*****\n\ncomponent (4):\n$componentString\n\n\n");
-
-      var subtestResult = _checkExpectFile(
-        data,
-        newWorldTestData.worldNum,
-        "",
-        context,
-        componentString,
-        canUpdateExpect: false,
-      );
-      if (subtestResult != null) return subtestResult;
-
-      checkIsEqual(
-        newWorldTestData.newestWholeComponentData!,
-        thisWholeComponent,
-      );
-
-      _checkErrorsAndWarnings(
         prevFormattedErrors,
-        worldTestData.formattedErrors,
         prevFormattedWarnings,
-        worldTestData.formattedWarnings,
       );
 
-      componentLocal = null;
-
-      // For whatever reason the above introduces a "temporary leak" that
-      // awaiting something here removes.
-      await null;
+      return result;
     }
     return null;
   }
 
-  // TODO(jensj): This is very much alike _loadModulesViaAdditionalDillModules
-  // above (from which it was copied). Try to join to create helpers etc to
-  // limit copied code.
   Future<Result<TestData>?> _compileViaExperimentalCache(
     World world,
     WorldSpecificTestData worldTestData,
@@ -2562,58 +2515,31 @@ class NewWorldTest {
     incrementalCompilerCache.countLoadTries = 0;
     incrementalCompilerCache.countSaves = 0;
 
-    // Do compile from scratch and compare.
-    worldTestData.clearPrevErrorsEtc();
-    CompilerOptions options = _createOptionsForWorld(
+    Result<TestData>? result = await _compileAndPerformChecks(
+      new TestIncrementalCompiler.experimentalCacheForTesting(
+        _clearPrevErrorsAndCreateOptionsForCompile(
+          worldTestData,
+          newWorldTestData,
+          world,
+        ),
+        worldTestData.entries.first,
+        incrementalCompilerCache: incrementalCompilerCache,
+      ),
+      worldTestData,
+      world,
+      "component (compile via experimental cache)",
       newWorldTestData,
-      worldTestData,
-      world,
-      // The DDC target saves stuff in the target that causes leaks
-      // in this config where we've loaded a new sdk etc, so we create
-      // a new target to avoid it.
-      createNewTarget: true,
+      prevFormattedErrors,
+      prevFormattedWarnings,
     );
 
-    if (world.modules != null) {
-      List<Uri> additionalDillModules = [];
-      int moduleNum = 0;
-      for (String moduleName in world.modules!) {
-        moduleNum++;
-        final Uri moduleUri = newWorldTestData.base.resolve(
-          "module_$moduleNum.dill",
-        );
-        newWorldTestData.fs
-            .entityForUri(moduleUri)
-            .writeAsBytesSync(newWorldTestData.moduleData![moduleName]!);
-        additionalDillModules.add(moduleUri);
-      }
-      options.additionalDillModules = additionalDillModules;
+    if (result != null) {
+      return new Result<TestData>(
+        data,
+        ErrorOnCompileViaExperimentalCache,
+        "Error on compiling via experimental cache: ${result.error}.",
+      );
     }
-
-    TestIncrementalCompiler? compilerFromScratch =
-        new TestIncrementalCompiler.experimentalCacheForTesting(
-          options,
-          worldTestData.entries.first,
-          incrementalCompilerCache: incrementalCompilerCache,
-        );
-    Stopwatch stopwatch = new Stopwatch()..start();
-    IncrementalCompilerResult? compilerResultLocal = await compilerFromScratch
-        .computeDelta(
-          entryPoints: worldTestData.entries,
-          simulateTransformer: world.simulateTransformer,
-        );
-    Component? componentLocal = compilerResultLocal.component;
-    compilerResultLocal = null;
-    compilerFromScratch = null;
-    Result<TestData>? result = _performErrorAndWarningCheck(
-      world,
-      data,
-      worldTestData,
-    );
-    if (result != null) return result;
-    util.throwOnEmptyMixinBodies(componentLocal);
-    await util.throwOnInsufficientUriToSource(componentLocal);
-    print("Compile took ${stopwatch.elapsedMilliseconds} ms");
 
     print("Loaded ${incrementalCompilerCache.countLoads} dills");
 
@@ -2648,6 +2574,73 @@ class NewWorldTest {
       );
     }
 
+    return null;
+  }
+
+  Future<Result<TestData>?> _compileFromScratch(
+    World world,
+    WorldSpecificTestData worldTestData,
+    NewWorldTestData newWorldTestData,
+    Set<String> prevFormattedErrors,
+    Set<String> prevFormattedWarnings,
+  ) async {
+    if (world.outlineOnly) return null;
+    if (incrementalSerialization) return null;
+    if (world.noFullComponent) return null;
+
+    Result<TestData>? result = await _compileAndPerformChecks(
+      new TestIncrementalCompiler(
+        _clearPrevErrorsAndCreateOptionsForCompile(
+          worldTestData,
+          newWorldTestData,
+          world,
+        ),
+        worldTestData.entries.first,
+      ),
+      worldTestData,
+      world,
+      "component (compile from scratch)",
+      newWorldTestData,
+      prevFormattedErrors,
+      prevFormattedWarnings,
+    );
+    if (result != null) {
+      return new Result<TestData>(
+        data,
+        ErrorOnCompileFromScratch,
+        "Error on compiling from scratch: ${result.error}.",
+      );
+    }
+    return null;
+  }
+
+  Future<Result<TestData>?> _compileAndPerformChecks(
+    TestIncrementalCompiler compilerFromScratch,
+    WorldSpecificTestData worldTestData,
+    World world,
+    String printTitle,
+    NewWorldTestData newWorldTestData,
+    Set<String> prevFormattedErrors,
+    Set<String> prevFormattedWarnings,
+  ) async {
+    Stopwatch stopwatch = new Stopwatch()..start();
+    IncrementalCompilerResult? compilerResultLocal = await compilerFromScratch
+        .computeDelta(
+          entryPoints: worldTestData.entries,
+          simulateTransformer: world.simulateTransformer,
+        );
+    Component? componentLocal = compilerResultLocal.component;
+    compilerResultLocal = null;
+    Result<TestData>? result = _performErrorAndWarningCheck(
+      world,
+      data,
+      worldTestData,
+    );
+    if (result != null) return result;
+    util.throwOnEmptyMixinBodies(componentLocal);
+    await util.throwOnInsufficientUriToSource(componentLocal);
+    print("Compile took ${stopwatch.elapsedMilliseconds} ms");
+
     List<int> thisWholeComponent = util.postProcess(
       componentLocal,
       clearConstantCoverageConstructors:
@@ -2659,9 +2652,10 @@ class NewWorldTest {
           ? worldTestData.formattedErrors
           : null,
     );
-    print("*****\n\ncomponent (5):\n$componentString\n\n\n");
 
-    var subtestResult = _checkExpectFile(
+    print("*****\n\n$printTitle:\n$componentString\n\n\n");
+
+    Result<TestData>? subtestResult = _checkExpectFile(
       data,
       newWorldTestData.worldNum,
       "",
@@ -2684,13 +2678,42 @@ class NewWorldTest {
     );
 
     componentLocal = null;
-
-    // TODO(jensj): Verify that the below is also true here.
-
-    // For whatever reason the above introduces a "temporary leak" that
-    // awaiting something here removes.
-    await null;
     return null;
+  }
+
+  CompilerOptions _clearPrevErrorsAndCreateOptionsForCompile(
+    WorldSpecificTestData worldTestData,
+    NewWorldTestData newWorldTestData,
+    World world,
+  ) {
+    // Do compile from scratch and compare.
+    worldTestData.clearPrevErrorsEtc();
+    CompilerOptions options = _createOptionsForWorld(
+      newWorldTestData,
+      worldTestData,
+      world,
+      // The DDC target saves stuff in the target that causes leaks
+      // in this config where we've loaded a new sdk etc, so we create
+      // a new target to avoid it.
+      createNewTarget: true,
+    );
+
+    if (world.modules != null) {
+      List<Uri> additionalDillModules = [];
+      int moduleNum = 0;
+      for (String moduleName in world.modules!) {
+        moduleNum++;
+        final Uri moduleUri = newWorldTestData.base.resolve(
+          "module_$moduleNum.dill",
+        );
+        newWorldTestData.fs
+            .entityForUri(moduleUri)
+            .writeAsBytesSync(newWorldTestData.moduleData![moduleName]!);
+        additionalDillModules.add(moduleUri);
+      }
+      options.additionalDillModules = additionalDillModules;
+    }
+    return options;
   }
 
   void _loadWorldModules(
@@ -3428,6 +3451,7 @@ class World {
   final bool printErrorsInExpect;
   final bool reject;
   final bool clearConstantCoverageConstructors;
+  final bool skipCompileFromScratch;
 
   /// The expected result of the advanced invalidation.
   final AdvancedInvalidationResult advancedInvalidation;
@@ -3498,6 +3522,7 @@ class World {
     required this.printErrorsInExpect,
     required this.reject,
     required this.clearConstantCoverageConstructors,
+    required this.skipCompileFromScratch,
   });
 
   static World create(Map world) {
@@ -3677,6 +3702,11 @@ class World {
         .clearConstantCoverageConstructors
         .read(world, keys);
 
+    bool skipCompileFromScratch = WorldProperties.skipCompileFromScratch.read(
+      world,
+      keys,
+    );
+
     if (keys.isNotEmpty) {
       throw "Unknown key(s) for World: $keys";
     }
@@ -3731,6 +3761,7 @@ class World {
       printErrorsInExpect: printErrorsInExpect,
       reject: reject,
       clearConstantCoverageConstructors: clearConstantCoverageConstructors,
+      skipCompileFromScratch: skipCompileFromScratch,
     );
   }
 }
@@ -4028,6 +4059,16 @@ class WorldProperties {
         BoolValue(),
         defaultValue: false,
       );
+
+  /// If true we skip the compile from scratch.
+  /// This can for instance be needed in some cases where a compile from scratch
+  /// sees a different world and/or has less information than an incremental
+  /// compile.
+  static const Property<bool> skipCompileFromScratch = Property.optional(
+    'skipCompileFromScratch',
+    BoolValue(),
+    defaultValue: false,
+  );
 }
 
 class WorldSpecificTestData {

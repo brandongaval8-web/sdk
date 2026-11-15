@@ -2273,6 +2273,7 @@ class _Utf8Decoder {
       );
     }
 
+    _bomIndex = -1;
     String result = '';
     const maxBytes = _maxChunkSizeInBytes;
     final int chunks = length ~/ maxBytes;
@@ -2301,6 +2302,17 @@ class _Utf8Decoder {
       start += remaining;
     }
     assert(start == end);
+    if (_state > afterBom) {
+      _state = initial;
+      if (!allowMalformed) {
+        throw FormatException(
+          errorDescription(errorUnfinished),
+          codeUnits,
+          errorOffset + end,
+        );
+      }
+      result += String.fromCharCode(unicodeReplacementCharacterRune);
+    }
     return result;
   }
 
@@ -2663,7 +2675,7 @@ class _Utf8Decoder {
 
   String decode16(WasmArray<WasmI8> bytes, int start, int end, int size) {
     assert(start < end);
-    assert(size <= _characterArraySize);
+    assert(end - start <= _maxChunkSizeInBytes);
 
     int i = start;
     int j = 0;
@@ -2877,13 +2889,17 @@ WasmArray<WasmI8> _makeI8ArrayFromWasmI8ArrayBase(
   final WasmArray<WasmI8> bytes = WasmArray(length);
   final WasmArray<WasmI8> listData = codeUnits.data;
   final listDataOffset = codeUnits.offsetInBytes;
-  for (int i = 0; i < length; i++) {
-    int b = listData.readSigned(listDataOffset + start + i);
-    if ((b & ~0xFF) != 0) {
-      // Replace invalid byte values by FF, which is also invalid.
-      b = 0xFF;
+  if (codeUnits is I8List) {
+    for (int i = 0; i < length; i++) {
+      int b = listData.readSigned(listDataOffset + start + i);
+      if (b < 0) {
+        // Replace invalid byte values by FF, which is also invalid.
+        b = 0xFF;
+      }
+      bytes.write(i, b);
     }
-    bytes.write(i, b);
+  } else {
+    bytes.copy(0, listData, listDataOffset + start, length);
   }
   return bytes;
 }

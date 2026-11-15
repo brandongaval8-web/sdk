@@ -48,7 +48,7 @@ class LspNotificationOverLegacyHandler {
       server.instrumentationService.logError(
         "The 'lsp.notification' notification was not valid: $exception",
       );
-      server.sessionLogger.logException(
+      server.sessionListener.logException(
         exception:
             "The 'lsp.notification' notification was not valid: $exception",
         stackTrace: stackTrace,
@@ -64,7 +64,7 @@ class LspNotificationOverLegacyHandler {
         "The 'lspNotification' parameter was not a valid LSP notification:\n"
         "${reporter.errors.join('\n')}",
       );
-      server.sessionLogger.logException(
+      server.sessionListener.logException(
         exception:
             "The 'lspNotification' parameter was not a valid LSP notification:\n"
             "${reporter.errors.join('\n')}",
@@ -104,13 +104,13 @@ class LspNotificationOverLegacyHandler {
     } catch (exception, stackTrace) {
       // Unlike the expected failure above, this is unexpected, so it is
       // recorded as an exception like `LspAnalysisServer.logException` does.
-      server.instrumentationService.logException(
-        CaughtException.withMessage(
-          'An error occurred while handling ${message.method} notification',
-          exception,
-          stackTrace,
-        ),
+      var caughtException = CaughtException.withMessage(
+        'An error occurred while handling ${message.method} notification',
+        exception,
+        stackTrace,
       );
+      server.instrumentationService.logException(caughtException);
+      server.sessionListener.logException(exception: caughtException);
     } finally {
       server.analyticsManager.handledNotificationMessage(
         notification: message,
@@ -131,7 +131,7 @@ class LspNotificationOverLegacyHandler {
     server.instrumentationService.logError(
       'An error occurred while handling ${message.method} notification: $error',
     );
-    server.sessionLogger.logException(
+    server.sessionListener.logException(
       exception:
           'An error occurred while handling ${message.method} notification: $error',
     );

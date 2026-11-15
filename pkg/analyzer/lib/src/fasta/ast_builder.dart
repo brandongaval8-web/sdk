@@ -3669,6 +3669,12 @@ class AstBuilder extends StackListener {
             {
               var awaitToken = type.name;
               if (awaitToken.type == Keyword.AWAIT) {
+                var name = parser.rewriter.insertSyntheticIdentifier(
+                  importPrefix.period,
+                );
+                // Move the synthetic `;` from after `y` to after the name, so
+                // that the parser continues with `await y.foo();`.
+                parser.rewriter.moveSynthetic(name, semicolon);
                 push(
                   ExpressionStatementImpl(
                     expression2: ParsedNameAccessImpl(
@@ -3676,15 +3682,11 @@ class AstBuilder extends StackListener {
                         name: importPrefix.name,
                       ),
                       operator: importPrefix.period,
-                      name: parser.rewriter.insertSyntheticIdentifier(
-                        importPrefix.period,
-                      ),
+                      name: name,
                     ),
                     semicolon: semicolon,
                   ),
                 );
-                parser.rewriter.insertToken(semicolon, awaitToken);
-                parser.rewriter.insertToken(awaitToken, variable.name);
                 return;
               }
             }
@@ -5681,7 +5683,7 @@ class AstBuilder extends StackListener {
         builder.implementsClause = implementsClause;
       } else {
         builder.implementsClause = ImplementsClauseImpl(
-          implementsKeyword: implementsClause.implementsKeyword,
+          implementsKeyword: existingClause.implementsKeyword,
           interfaces: [
             ...existingClause.interfaces,
             ...implementsClause.interfaces,

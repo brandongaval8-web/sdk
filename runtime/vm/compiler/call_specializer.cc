@@ -346,15 +346,11 @@ bool CallSpecializer::TryStringLengthOneEquality(InstanceCallInstr* call,
         /*null_aware=*/false);
     ReplaceCall(call, comp);
 
-    // Remove dead instructions.
-    if ((to_remove_left != nullptr) &&
-        (to_remove_left->input_use_list() == nullptr)) {
-      to_remove_left->ReplaceUsesWith(flow_graph()->constant_null());
+    // Remove dead instructions. Keep any that an environment still uses.
+    if ((to_remove_left != nullptr) && !to_remove_left->HasUses()) {
       to_remove_left->RemoveFromGraph();
     }
-    if ((to_remove_right != nullptr) &&
-        (to_remove_right->input_use_list() == nullptr)) {
-      to_remove_right->ReplaceUsesWith(flow_graph()->constant_null());
+    if ((to_remove_right != nullptr) && !to_remove_right->HasUses()) {
       to_remove_right->RemoveFromGraph();
     }
     return true;
@@ -549,7 +545,11 @@ bool CallSpecializer::TryReplaceWithBinaryOp(InstanceCallInstr* call,
       } else if (binary_feedback.OperandsAre(kFloat32x4Cid)) {
         operands_type = kFloat32x4Cid;
       } else if (binary_feedback.OperandsAre(kInt32x4Cid)) {
-        ASSERT(op_kind != Token::kMUL);  // Int32x4 doesn't have a multiply op.
+        if (op_kind == Token::kMUL) {
+          // Int32x4 multiplication has no SimdOp yet, so it keeps using the
+          // Dart implementation.
+          return false;
+        }
         operands_type = kInt32x4Cid;
       } else if (binary_feedback.OperandsAre(kFloat64x2Cid)) {
         operands_type = kFloat64x2Cid;

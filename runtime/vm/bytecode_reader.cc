@@ -213,7 +213,7 @@ void BytecodeReaderHelper::ReadCode(const Function& function,
 
   AlternativeReadingScope alt(&reader_, code_offset);
   const auto& signature = FunctionType::Handle(Z, function.signature());
-  FunctionTypeScope function_type_scope(this, signature);
+  FunctionTypeScope function_type_scope(this, function, signature);
 
   const intptr_t flags = reader_.ReadUInt();
   const bool has_exceptions_table =
@@ -394,11 +394,10 @@ void BytecodeReaderHelper::ReadClosureDeclaration(const Function& function,
   const int kIsAsyncFlag = 1 << 4;
   const int kIsAsyncStarFlag = 1 << 5;
   const int kIsSyncStarFlag = 1 << 6;
-  const int kIsDebuggableFlag = 1 << 7;
-  const int kHasParameterFlagsFlag = 1 << 8;
-  const int kHasAnnotationsFlag = 1 << 9;
-  const int kHasPragmaFlag = 1 << 10;
-  const int kIsInvisibleFlag = 1 << 11;
+  const int kHasParameterFlagsFlag = 1 << 7;
+  const int kHasAnnotationsFlag = 1 << 8;
+  const int kHasPragmaFlag = 1 << 9;
+  const int kIsInvisibleFlag = 1 << 10;
 
   const intptr_t flags = reader_.ReadUInt();
   const bool has_pragma = (flags & kHasPragmaFlag) != 0;
@@ -436,7 +435,6 @@ void BytecodeReaderHelper::ReadClosureDeclaration(const Function& function,
     closure.set_modifier(UntaggedFunction::kAsyncGen);
     closure.set_is_inlinable(false);
   }
-  closure.set_is_debuggable((flags & kIsDebuggableFlag) != 0);
   closure.set_is_visible((flags & kIsInvisibleFlag) == 0);
   closure.set_has_pragma(has_pragma);
 
@@ -465,8 +463,16 @@ FunctionTypePtr BytecodeReaderHelper::ReadFunctionSignature(
     bool has_optional_named_params,
     bool has_type_params,
     bool has_positional_param_names,
-    bool has_parameter_flags) {
-  FunctionTypeScope function_type_scope(this, signature);
+    bool has_parameter_flags,
+    intptr_t num_parent_type_args) {
+  // Function types (which are not function signatures) do not have
+  // parent type arguments in the VM.
+  FunctionTypeScope function_type_scope(
+      this, signature,
+      closure_function.IsNull() ? num_parent_type_args
+                                : closure_function.NumParentTypeArguments(),
+      closure_function.IsNull() ? 0
+                                : closure_function.NumParentTypeArguments());
 
   if (has_type_params) {
     ReadTypeParametersDeclaration(Class::Handle(Z), signature);
@@ -658,7 +664,8 @@ intptr_t BytecodeReaderHelper::ReadConstantPool(const Function& function,
 
         const auto& signature =
             FunctionType::Handle(Z, Function::Cast(obj).signature());
-        FunctionTypeScope function_type_scope(this, signature);
+        FunctionTypeScope function_type_scope(this, Function::Cast(obj),
+                                              signature);
 
         // Read constant pool until corresponding EndClosureFunctionScope.
         i = ReadConstantPool(function, pool, i + 1);
@@ -1584,20 +1591,28 @@ ObjectPtr BytecodeReaderHelper::ReadType(intptr_t tag,
         type = Function::Cast(parent).TypeParameterAt(index_in_parent,
                                                       nullability);
       } else if (parent.IsNull()) {
+        // Type parameters of the enclosing function types are numbered
+        // sequentially in the bytecode, according to the number of
+        // parent type arguments encoded in the bytecode.
         ASSERT(!enclosing_function_types_.is_empty());
+        intptr_t num_parent_type_args = 0;
+        intptr_t vm_num_parent_type_args = 0;
         for (intptr_t i = enclosing_function_types_.length() - 1; i >= 0; --i) {
           parent = enclosing_function_types_[i]->ptr();
+          num_parent_type_args =
+              enclosing_function_types_num_parent_type_args_[i];
+          vm_num_parent_type_args =
+              enclosing_function_types_vm_num_parent_type_args_[i];
           ASSERT(index_in_parent <
-                 FunctionType::Cast(parent).NumTypeArguments());
-          if (index_in_parent >=
-              FunctionType::Cast(parent).NumParentTypeArguments()) {
+                 num_parent_type_args +
+                     FunctionType::Cast(parent).NumTypeParameters());
+          if (index_in_parent >= num_parent_type_args) {
             break;
           }
         }
         type = FunctionType::Cast(parent).TypeParameterAt(
-            index_in_parent -
-                FunctionType::Cast(parent).NumParentTypeArguments(),
-            nullability);
+            index_in_parent - num_parent_type_args, nullability,
+            vm_num_parent_type_args);
       } else {
         UNREACHABLE();
       }
@@ -1624,10 +1639,11 @@ ObjectPtr BytecodeReaderHelper::ReadType(intptr_t tag,
         ASSERT(num_parent_type_args > 0);
         ASSERT(!enclosing_function_types_.is_empty());
         ASSERT(num_parent_type_args ==
-               enclosing_function_types_.Last()->NumTypeArguments());
+               enclosing_function_types_num_parent_type_args_.Last() +
+                   enclosing_function_types_.Last()->NumTypeParameters());
       }
-      auto& signature_type = FunctionType::Handle(
-          Z, FunctionType::New(num_parent_type_args, nullability));
+      auto& signature_type =
+          FunctionType::Handle(Z, FunctionType::New(nullability));
       // TODO(alexmarkov): skip type finalization
       return ReadFunctionSignature(
           signature_type, Function::null_function(),
@@ -1635,7 +1651,7 @@ ObjectPtr BytecodeReaderHelper::ReadType(intptr_t tag,
           (flags & kFlagHasOptionalNamedParams) != 0,
           (flags & kFlagHasTypeParams) != 0,
           /* has_positional_param_names = */ false,
-          (flags & kFlagHasParameterFlags) != 0);
+          (flags & kFlagHasParameterFlags) != 0, num_parent_type_args);
     }
     case kRecordType: {
       const intptr_t num_positional = reader_.ReadUInt();
@@ -2223,7 +2239,7 @@ void BytecodeReaderHelper::ReadFunctionDeclarations(const Class& cls) {
     // At this moment, owner class is not fully loaded yet and it won't be
     // able to serve function lookup requests.
     FunctionScope function_scope(this, function, name, cls);
-    FunctionTypeScope function_type_scope(this, signature);
+    FunctionTypeScope function_type_scope(this, function, signature);
 
     // Set the expression evaluation function now so that references to it
     // can be appropriately substituted as needed when reading objects below.
@@ -2527,8 +2543,6 @@ void BytecodeReaderHelper::ReadLibraryDeclaration(const Library& library,
 
   ASSERT(!library.Loaded());
   ASSERT(library.toplevel_class() == Object::null());
-
-  // TODO(alexmarkov): fill in library.used_scripts.
 
   reader_.ReadUInt();  // Flags.
 
@@ -3210,6 +3224,36 @@ LocalVarDescriptorsPtr BytecodeReader::ComputeLocalVarDescriptors(
 }
 
 #endif  // !defined(PRODUCT) && !defined(DART_PRECOMPILED_RUNTIME)
+
+#if !defined(DART_PRECOMPILED_RUNTIME)
+bool BytecodeReader::EvaluationFunctionUsesReceiver(Zone* zone,
+                                                    const Function& function) {
+  ASSERT(!function.is_static() && function.HasBytecode());
+  ASSERT(!function.HasOptionalParameters());
+  ASSERT(!function.IsSuspendableFunction());
+  const auto& bytecode = Bytecode::Handle(zone, function.GetBytecode());
+  auto* pc = reinterpret_cast<const KBCInstr*>(bytecode.PayloadStart());
+  auto* const end = pc + bytecode.Size();
+  ASSERT(KernelBytecode::IsEntryOpcode(pc));
+  // As there are no optional parameters, the parameters are not copied into
+  // locals, and the receiver, parameter 0 of n, stays in frame slot
+  // -kKBCParamEndSlotFromFp - n. The receiver is immutable, so only pushes
+  // can use it.
+  const intptr_t receiver_slot =
+      -kKBCParamEndSlotFromFp - function.NumParameters();
+  for (; pc < end; pc = KernelBytecode::Next(pc)) {
+    switch (KernelBytecode::DecodeOpcode(pc)) {
+      case KernelBytecode::kPush:
+      case KernelBytecode::kPush_Wide:
+        if (KernelBytecode::DecodeX(pc) == receiver_slot) return true;
+        break;
+      default:
+        break;
+    }
+  }
+  return false;
+}
+#endif  // !defined(DART_PRECOMPILED_RUNTIME)
 
 }  // namespace bytecode
 }  // namespace dart

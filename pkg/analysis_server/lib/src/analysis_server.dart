@@ -49,7 +49,7 @@ import 'package:analysis_server/src/services/search/search_engine_internal.dart'
 import 'package:analysis_server/src/services/user_prompts/dart_fix_prompt_manager.dart';
 import 'package:analysis_server/src/services/user_prompts/survey_manager.dart';
 import 'package:analysis_server/src/services/user_prompts/user_prompts.dart';
-import 'package:analysis_server/src/session_logger/session_logger.dart';
+import 'package:analysis_server/src/session_logger/session_listener.dart';
 import 'package:analysis_server/src/status/performance_logger.dart';
 import 'package:analysis_server/src/status/utilities/report_data.dart';
 import 'package:analysis_server/src/utilities/extensions/ast.dart';
@@ -202,8 +202,8 @@ abstract class AnalysisServer {
   /// The instrumentation service that is to be used by this analysis server.
   InstrumentationService instrumentationService;
 
-  /// The session logger that is to be used by this analysis server.
-  SessionLogger sessionLogger;
+  /// The session listener that is to be used by this analysis server.
+  SessionListener sessionListener;
 
   /// Performance information after initial analysis is complete
   /// or `null` if the initial analysis is not yet complete
@@ -316,7 +316,7 @@ abstract class AnalysisServer {
     this.crashReportingAttachmentsBuilder,
     ResourceProvider baseResourceProvider,
     this.instrumentationService,
-    this.sessionLogger,
+    this.sessionListener,
     http.Client? httpClient,
     ProcessRunner? processRunner,
     this.notificationManager, {
@@ -328,7 +328,7 @@ abstract class AnalysisServer {
     PluginManager? pluginManager,
     MessageSchedulerListener? messageSchedulerListener,
     this.performanceLogger,
-    required bool usePlugins,
+    required bool? usePlugins,
     Map<String, String>? environment,
   }) : resourceProvider = OverlayResourceProvider(
          TimingResourceProvider(baseResourceProvider),
@@ -339,7 +339,7 @@ abstract class AnalysisServer {
        pubPackageService = _createPubPackageService(
          baseResourceProvider: baseResourceProvider,
          instrumentationService: instrumentationService,
-         sessionLogger: sessionLogger,
+         sessionListener: sessionListener,
          httpClient: httpClient,
          processRunner: processRunner,
          environment: environment,
@@ -358,13 +358,20 @@ abstract class AnalysisServer {
       sdkManager.defaultSdkDirectory,
       notificationManager,
       instrumentationService,
-      sessionLogger,
+      sessionListener,
       processRunner: processRunner ?? ProcessRunner(environment: environment),
     );
     var pluginWatcher = PluginWatcher(
       resourceProvider,
       pluginManager,
       pluginsAreEnabled: usePlugins,
+      trust: options.trustPlugins,
+      alwaysTrust: options.alwaysTrustPlugins,
+      neverTrust: options.neverTrustPlugins,
+      includedPaths: () => contextManager.includedPaths,
+      onUnseenUntrustedPluginDirectory: (message) {
+        showMessageToUser(MessageType.warning, message);
+      },
     );
 
     var logName = options.newAnalysisDriverLog;
@@ -402,7 +409,7 @@ abstract class AnalysisServer {
       analysisPerformanceLogger,
       analysisDriverScheduler,
       instrumentationService,
-      sessionLogger,
+      sessionListener,
       enableBlazeWatcher: enableBlazeWatcher,
       withFineDependencies: options.withFineDependencies,
     );
@@ -414,7 +421,7 @@ abstract class AnalysisServer {
           UserPromptPreferences(
             resourceProvider,
             instrumentationService,
-            sessionLogger,
+            sessionListener,
           ),
         );
   }
@@ -786,7 +793,7 @@ abstract class AnalysisServer {
     surveyManager = SurveyManager(
       this,
       instrumentationService,
-      sessionLogger,
+      sessionListener,
       analyticsManager.analytics,
     );
   }
@@ -1006,7 +1013,10 @@ abstract class AnalysisServer {
       return null;
     } catch (exception, stackTrace) {
       instrumentationService.logException(exception, stackTrace);
-      sessionLogger.logException(exception: exception, stackTrace: stackTrace);
+      sessionListener.logException(
+        exception: exception,
+        stackTrace: stackTrace,
+      );
     } finally {
       RequestPerformanceAdditionalTimings.current?.popAnalysis();
     }
@@ -1040,7 +1050,10 @@ abstract class AnalysisServer {
       return value is ResolvedUnitResult ? value : null;
     } catch (exception, stackTrace) {
       instrumentationService.logException(exception, stackTrace);
-      sessionLogger.logException(exception: exception, stackTrace: stackTrace);
+      sessionListener.logException(
+        exception: exception,
+        stackTrace: stackTrace,
+      );
       return null;
     } finally {
       RequestPerformanceAdditionalTimings.current?.popAnalysis();
@@ -1135,7 +1148,7 @@ abstract class AnalysisServer {
       null,
       attachments,
     );
-    sessionLogger.logException(
+    sessionListener.logException(
       exception: SilentException.wrapInMessage(message, result.exception),
       attachments: attachments,
     );
@@ -1332,7 +1345,10 @@ abstract class AnalysisServer {
       );
     } catch (exception, stackTrace) {
       instrumentationService.logException(exception, stackTrace);
-      sessionLogger.logException(exception: exception, stackTrace: stackTrace);
+      sessionListener.logException(
+        exception: exception,
+        stackTrace: stackTrace,
+      );
     }
     return null;
   }
@@ -1364,7 +1380,10 @@ abstract class AnalysisServer {
       );
     } catch (exception, stackTrace) {
       instrumentationService.logException(exception, stackTrace);
-      sessionLogger.logException(exception: exception, stackTrace: stackTrace);
+      sessionListener.logException(
+        exception: exception,
+        stackTrace: stackTrace,
+      );
     }
     return null;
   }
@@ -1387,6 +1406,17 @@ abstract class AnalysisServer {
     StackTrace? stackTrace, {
     bool fatal = false,
   });
+
+  /// Sends a `window/showMessage` notification to the client.
+  void showMessageToUser(MessageType type, String message) {
+    sendLspNotification(
+      lsp.NotificationMessage(
+        method: lsp.Method.window_showMessage,
+        params: lsp.ShowMessageParams(type: type.forLsp, message: message),
+        jsonrpc: lsp.jsonRpcVersion,
+      ),
+    );
+  }
 
   /// Shows the user a prompt with some actions to select from using
   /// 'window/showMessageRequest'.
@@ -1426,7 +1456,7 @@ abstract class AnalysisServer {
     _singleFileByteStore?.close();
     await analyticsManager.shutdown();
     await shutdownPerfWitness();
-    await sessionLogger.shutdown();
+    await sessionListener.shutdown();
   }
 
   ResolvedForCompletionResultImpl?
@@ -1453,7 +1483,10 @@ abstract class AnalysisServer {
       }
     } catch (exception, stackTrace) {
       instrumentationService.logException(exception, stackTrace);
-      sessionLogger.logException(exception: exception, stackTrace: stackTrace);
+      sessionListener.logException(
+        exception: exception,
+        stackTrace: stackTrace,
+      );
     }
     return null;
   }
@@ -1461,14 +1494,14 @@ abstract class AnalysisServer {
   static PubPackageService _createPubPackageService({
     required ResourceProvider baseResourceProvider,
     required InstrumentationService instrumentationService,
-    required SessionLogger sessionLogger,
+    required SessionListener sessionListener,
     required http.Client? httpClient,
     required ProcessRunner? processRunner,
     required Map<String, String>? environment,
   }) {
     var pubApi = PubApi(
       instrumentationService,
-      sessionLogger,
+      sessionListener,
       httpClient,
       platform.environment['PUB_HOSTED_URL'],
     );
@@ -1484,7 +1517,7 @@ abstract class AnalysisServer {
     var pubCommand = processRunner != null && disablePubCommandVariable == null
         ? PubCommand(
             instrumentationService,
-            sessionLogger,
+            sessionListener,
             baseResourceProvider.pathContext,
             processRunner,
           )
@@ -1492,7 +1525,7 @@ abstract class AnalysisServer {
 
     return PubPackageService(
       instrumentationService,
-      sessionLogger,
+      sessionListener,
       baseResourceProvider,
       pubApi,
       pubCommand,

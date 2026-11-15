@@ -16,15 +16,17 @@ state-bearing elements (like classes, members, and statics) via the runtime.
 
 ```js
 rt = instantiate(wasm_dev_rt);
-app = instantiate(app_module, {wasm_dev_rt: rt});
-app.main();
+modules = app_modules.map((m) => instantiate(m, {wasm_dev_rt: rt}));
+modules[0].main();
 ```
 
 ## Static calls
 
 Statics (top-level functions, static methods, and constructors) are represented
 by a fully resolved label (like `package:foo/foo.dart::Foo.bar`). The runtime
-maps labels to IDs and IDs to functions. Each call looks up its target by ID.
+maps labels to IDs and IDs to functions in a Wasm table
+(`static-functions-table`). Each call invokes its target by ID using
+`call_indirect`.
 
 ```dart
 // package:foo/foo.dart
@@ -43,15 +45,17 @@ barId = rt.staticId('package:foo/foo.dart::Foo.bar');
 rt.defineStatic(barId, Foo.bar);
 
 // main
-rt.lookupStatic(barId)();
+rt.staticFunctionsTable[barId]();
 ```
 
 ## Instance calls
 
-The runtime maps class labels and member names to IDs.
-Each class defines its superclass and members.
-Calls are dispatched by resolving a member ID from the receiver's class,
-walking its superclass hierarchy.
+The runtime maps class labels, member names, and shapes to IDs.
+A shape is a member's positional parameter count and named parameters (sorted),
+like `1,a,b` for `foo(x, {b, a})`.
+Each class defines its superclass and members by name and shape.
+Calls are dispatched by resolving a member ID and shape ID from the receiver's
+class, walking its superclass hierarchy.
 
 ```dart
 // package:foo/foo.dart
@@ -81,9 +85,10 @@ greeterNewId = rt.staticId('package:foo/foo.dart::Greeter.new');
 rt.defineStatic(greeterNewId, Greeter.new);
 messageId = rt.instanceMemberId('message');
 greetId = rt.instanceMemberId('greet');
+shape0Id = rt.shapeId('0');
 rt.startInstanceMemberDefinitions(greeterId);
-rt.defineInstanceMember(greeterId, messageId, Greeter.message);
-rt.defineInstanceMember(greeterId, greetId, Greeter.greet);
+rt.defineInstanceMember(greeterId, messageId, shape0Id, Greeter.message);
+rt.defineInstanceMember(greeterId, greetId, shape0Id, Greeter.greet);
 rt.endInstanceMemberDefinitions(greeterId);
 
 // WorldGreeter
@@ -92,14 +97,60 @@ rt.defineClassSupers(worldGreeterId, greeterId);
 worldGreeterNewId = rt.staticId('package:foo/foo.dart::WorldGreeter.new');
 rt.defineStatic(worldGreeterNewId, WorldGreeter.new);
 rt.startInstanceMemberDefinitions(worldGreeterId);
-rt.defineInstanceMember(worldGreeterId, messageId, WorldGreeter.message);
+rt.defineInstanceMember(
+    worldGreeterId, messageId, shape0Id, WorldGreeter.message);
 rt.endInstanceMemberDefinitions(worldGreeterId);
 
 // main
 o = {classId: worldGreeterId};
-rt.lookupStatic(worldGreeterNewId)(o);
-rt.findTarget(o.classId, greetId)(o);
+rt.staticFunctionsTable[worldGreeterNewId](o);
+rt.findTarget(o.classId, greetId, shape0Id)(o);
 
 // Greeter.greet
-print(rt.findTarget(this.classId, messageId)(this));
+print(rt.findTarget(this.classId, messageId, shape0Id)(this));
+```
+
+## Calling convention
+
+Every function accepts its parameters: the receiver (for instance members and
+constructors), positional parameters (in order), then named parameters (sorted).
+Omitted optional parameters are passed a sentinel, which callees replace with
+their default value.
+
+Besides the receiver, all arguments and return values are top-typed (and so
+boxed when necessary).
+
+```dart
+class Greeter {
+  String greet(String name, {String? title = 'Dr.', bool loud = false}) =>
+      name;
+}
+
+String staticGreet(String name, {String? title = 'Dr.', bool loud = false}) =>
+    name;
+
+void greetAll(Greeter g) {
+  g.greet('Jekyll', title: null);
+  staticGreet('Jekyll', title: null);
+}
+```
+
+compiles to:
+
+```
+// Once on module init
+greetShapeId = rt.shapeId('1,loud,title');
+
+// Greeter.greet(this, name, loud, title)
+final loud_ = identical(loud, sentinel) ? false : unbox(loud);
+title = identical(title, sentinel) ? box('Dr.') : title;
+
+// staticGreet(name, loud, title)
+final loud_ = identical(loud, sentinel) ? false : unbox(loud);
+title = identical(title, sentinel) ? box('Dr.') : title;
+
+// greetAll
+rt.findTarget(g.classId, greetId, greetShapeId)(
+    g, box('Jekyll'), sentinel, null);
+rt.staticFunctionsTable[staticGreetId](box('Jekyll'), sentinel, null);
 ```

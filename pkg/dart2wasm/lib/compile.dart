@@ -2,8 +2,6 @@
 // for details. All rights reserved. Use of this source code is governed by a
 // BSD-style license that can be found in the LICENSE file.
 
-import 'dart:convert';
-
 import 'package:front_end/src/api_prototype/file_system.dart' show FileSystem;
 import 'package:front_end/src/api_unstable/vm.dart'
     show
@@ -306,7 +304,20 @@ Future<CompilationResult> _runCfePhase(
   void Function(CfeDiagnosticMessage) handleDiagnosticMessage,
 ) async {
   var hadCompileTimeError = false;
+  final dryRunCfeErrors = <CfeDiagnosticMessage>[];
   void diagnosticMessageHandler(CfeDiagnosticMessage message) {
+    if (options.dryRun) {
+      // Buffer CFE errors instead of printing eagerly: Wasm-incompatible code
+      // (such as disallowed `dart:html` symbols or JS interop errors) also
+      // produces CFE errors, and callers like `flutter_tools` expect `stderr`
+      // to stay empty when `DryRunSummarizer` reports findings on `stdout`.
+      // Non-error diagnostics are ignored, and buffered errors are only emitted
+      // if `DryRunSummarizer` reports no Wasm incompatibilities.
+      if (message.severity == CfeSeverity.error) {
+        dryRunCfeErrors.add(message);
+      }
+      return;
+    }
     if (message.severity == CfeSeverity.error) {
       hadCompileTimeError = true;
     }
@@ -348,15 +359,21 @@ Future<CompilationResult> _runCfePhase(
   }
   if (options.dryRun) {
     final component = compilerResult?.component;
-    if (component == null) {
-      return CompilationDryRunError();
+    if (component != null) {
+      final summarizer = DryRunSummarizer(
+        component,
+        enableExperimentalFfi: options.translatorOptions.enableExperimentalFfi,
+      );
+      final hasErrors = await summarizer.summarize();
+      if (hasErrors) {
+        return CompilationDryRunError();
+      }
+      if (dryRunCfeErrors.isEmpty) {
+        return CompilationDryRunSuccess();
+      }
     }
-    final summarizer = DryRunSummarizer(
-      component,
-      enableExperimentalFfi: options.translatorOptions.enableExperimentalFfi,
-    );
-    final hasErrors = await summarizer.summarize();
-    return hasErrors ? CompilationDryRunError() : CompilationDryRunSuccess();
+    dryRunCfeErrors.forEach(handleDiagnosticMessage);
+    return CompilationDryRunError();
   }
   if (hadCompileTimeError) {
     return CFECompileTimeErrors(compilerResult?.component);
@@ -660,10 +677,7 @@ Future<CompilationResult> _runCodegenPhase(
         addMinifiedClassNames(sourceMapJson, classNames);
       }
       writeFutures.add(
-        ioManager.writeWasmSourceMap(
-          jsonEncode(sourceMapJson),
-          moduleMetadata.moduleName,
-        ),
+        ioManager.writeWasmSourceMap(sourceMapJson, moduleMetadata.moduleName),
       );
     }
   });

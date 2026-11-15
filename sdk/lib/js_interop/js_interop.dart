@@ -2562,9 +2562,45 @@ extension JSAnyOperatorExtension on JSAny? {
 
   // Bitwise operators.
 
+  /// The result of <code>`this` << [any]</code> in JavaScript.
+  ///
+  /// The result is either a [JSNumber] or a [JSBigInt].
+  @Since('3.15')
+  external JSAny leftShift(JSAny? any);
+
+  /// The result of <code>`this` >> [any]</code> in JavaScript.
+  ///
+  /// The result is either a [JSNumber] or a [JSBigInt].
+  @Since('3.15')
+  external JSAny rightShift(JSAny? any);
+
   /// The result of <code>`this` >>> [any]</code> in JavaScript.
   // TODO(srujzs): This should return `num` or `double` instead.
   external JSNumber unsignedRightShift(JSAny? any);
+
+  /// The result of <code>`this` & [any]</code> in JavaScript.
+  ///
+  /// The result is either a [JSNumber] or a [JSBigInt].
+  @Since('3.15')
+  external JSAny bitwiseAnd(JSAny? any);
+
+  /// The result of <code>`this` | [any]</code> in JavaScript.
+  ///
+  /// The result is either a [JSNumber] or a [JSBigInt].
+  @Since('3.15')
+  external JSAny bitwiseOr(JSAny? any);
+
+  /// The result of <code>`this` ^ [any]</code> in JavaScript.
+  ///
+  /// The result is either a [JSNumber] or a [JSBigInt].
+  @Since('3.15')
+  external JSAny bitwiseXor(JSAny? any);
+
+  /// The result of <code>`~this`</code> in JavaScript.
+  ///
+  /// The result is either a [JSNumber] or a [JSBigInt].
+  @Since('3.15')
+  external JSAny get bitwiseNot;
 
   // Logical operators.
 
@@ -2651,3 +2687,12 @@ external JSPromise<JSObject> importModule(JSAny moduleName);
 /// themselves cannot be used interchangeably.
 @Since('3.12')
 external bool jsIdentical(Object? a, Object? b);
+
+/// Throws [error] in the same manner as JS, without any of Dart's additional
+/// exception wrapping.
+///
+/// This is useful when the error is expected to be caught by or displayed to
+/// JS users rather than Dart code. Dart's additional wrappers and properties
+/// can obscure JS error information in those contexts.
+@Since('3.15')
+external Never jsThrow(JSAny error);

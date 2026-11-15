@@ -126,7 +126,7 @@ abstract class AbstractLspAnalysisServerTest
       'c',
       server.notificationManager,
       server.instrumentationService,
-      server.sessionLogger,
+      server.sessionListener,
       isLegacy: true,
     );
     pluginManager.pluginIsolates.add(pluginIsolate);
@@ -892,6 +892,14 @@ mixin ClientCapabilitiesHelperMixin {
   void setWorkspaceDynamicRegistration(String name) {
     workspaceCapabilities = extendWorkspaceCapabilities(workspaceCapabilities, {
       name: {'dynamicRegistration': true},
+    });
+  }
+
+  void setWorkspaceSymbolKinds(List<SymbolKind> kinds) {
+    workspaceCapabilities = extendWorkspaceCapabilities(workspaceCapabilities, {
+      'symbol': {
+        'symbolKind': {'valueSet': kinds.map((k) => k.toJson()).toList()},
+      },
     });
   }
 

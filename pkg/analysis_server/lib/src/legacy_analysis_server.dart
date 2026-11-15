@@ -191,7 +191,13 @@ class AnalysisServerOptions {
   /// Whether to enable fine-grained dependencies.
   bool withFineDependencies = false;
 
-  bool usePlugins = true;
+  bool? usePlugins = true;
+
+  bool trustPlugins = false;
+
+  bool alwaysTrustPlugins = false;
+
+  bool neverTrustPlugins = false;
 }
 
 /// Instances of the class [LegacyAnalysisServer] implement a server that
@@ -709,21 +715,25 @@ class LegacyAnalysisServer extends AnalysisServer {
           instrumentationService.logError(
             'Unknown notification ${notification.event}',
           );
-          sessionLogger.logException(
+          sessionListener.logException(
             exception: 'Unknown notification ${notification.event}',
           );
         }
         completer.complete();
       },
       (exception, stackTrace) {
-        instrumentationService.logException(
-          FatalException(
-            'Failed to handle notification: ${notification.event}',
-            exception,
-            stackTrace,
-          ),
-          null,
-          crashReportingAttachmentsBuilder.forException(exception),
+        var fatalException = FatalException(
+          'Failed to handle notification: ${notification.event}',
+          exception,
+          stackTrace,
+        );
+        var attachments = crashReportingAttachmentsBuilder.forException(
+          exception,
+        );
+        instrumentationService.logException(fatalException, null, attachments);
+        sessionListener.logException(
+          exception: fatalException,
+          attachments: attachments,
         );
         completer.complete();
       },
@@ -803,7 +813,7 @@ class LegacyAnalysisServer extends AnalysisServer {
             null,
             attachments,
           );
-          sessionLogger.logException(
+          sessionListener.logException(
             exception: fatalException,
             attachments: attachments,
           );
@@ -1144,6 +1154,7 @@ class LegacyAnalysisServer extends AnalysisServer {
     unawaited(
       Future(() {
         instrumentationService.shutdown();
+        sessionListener.shutdown();
         channel.close();
       }),
     );
