@@ -33,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
       - name: "Set up Dart"
-        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+        uses: dart-lang/setup-dart@2286a0c042b44434fe26d292bbce8d34f7ec662b
       - name: "Publish package to pub.dev"
         env:
           TAG: ${{ github.ref_name }}
